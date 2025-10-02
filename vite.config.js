@@ -8,6 +8,7 @@ export default defineConfig({
     react(),
     tailwindcss()
   ],
+  base:"/quiz-application",
   server: {
     port: 3000,
     open: true
