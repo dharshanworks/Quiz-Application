@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 
-// Fisher-Yates shuffle algorithm for randomizing questions
 const shuffleArray = (array) => {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -10,7 +9,6 @@ const shuffleArray = (array) => {
   return shuffled;
 };
 
-// Quiz data for Advanced Java Programming - 20 questions per unit
 const quizData = {
   unit1: [
     { id: 1, question: "What is the purpose of Java Streams API?", options: ["File I/O operations", "Functional-style operations on collections", "Network streaming", "Audio streaming"], answer: "Functional-style operations on collections" },
