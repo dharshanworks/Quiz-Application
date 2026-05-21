@@ -54,8 +54,9 @@ jobs:
             
             # Backup current build
             if [ "$(ls -A $DEPLOY_DIR 2>/dev/null)" ]; then
-              rm -rf $BACKUP_DIR
-              cp -r $DEPLOY_DIR $BACKUP_DIR
+              sudo rm -rf $BACKUP_DIR
+              sudo cp -r $DEPLOY_DIR $BACKUP_DIR
+              sudo chown -R ubuntu:ubuntu $BACKUP_DIR
               echo "Backup created"
             fi
             
@@ -95,8 +96,9 @@ jobs:
             TEMP_DIR="/tmp/main-quiz-deploy"
             
             echo "=== Moving files to deployment ==="
-            rm -rf $DEPLOY_DIR/*
-            cp -r $TEMP_DIR/* $DEPLOY_DIR/
+            sudo rm -rf $DEPLOY_DIR/*
+            sudo cp -r $TEMP_DIR/* $DEPLOY_DIR/
+            sudo chown -R ubuntu:ubuntu $DEPLOY_DIR
             
             echo "=== Restarting Nginx ==="
             sudo systemctl restart nginx
@@ -108,8 +110,9 @@ jobs:
             else
               echo "FAILED: Health check failed (HTTP $HTTP_CODE)"
               echo "Rolling back..."
-              rm -rf $DEPLOY_DIR/*
-              cp -r $BACKUP_DIR/* $DEPLOY_DIR/
+              sudo rm -rf $DEPLOY_DIR/*
+              sudo cp -r $BACKUP_DIR/* $DEPLOY_DIR/
+              sudo chown -R ubuntu:ubuntu $DEPLOY_DIR
               sudo systemctl restart nginx
               echo "Rollback complete"
               exit 1
