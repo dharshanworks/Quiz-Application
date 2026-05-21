@@ -48,8 +48,9 @@ jobs:
             BACKUP_DIR="/var/www/main-quiz-backup"
             TEMP_DIR="/tmp/main-quiz-deploy"
             
-            # Create directories
-            mkdir -p $DEPLOY_DIR $BACKUP_DIR $TEMP_DIR
+            # Create directories with proper permissions
+            sudo mkdir -p $DEPLOY_DIR $BACKUP_DIR $TEMP_DIR
+            sudo chown -R ubuntu:ubuntu $DEPLOY_DIR $BACKUP_DIR $TEMP_DIR
             
             # Backup current build
             if [ "$(ls -A $DEPLOY_DIR 2>/dev/null)" ]; then
