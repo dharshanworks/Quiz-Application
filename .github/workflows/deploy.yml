@@ -11,20 +11,17 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Lint
-        run: npm run lint -- --no-fix || true
 
       - name: Build project
         run: npm run build
@@ -36,54 +33,100 @@ jobs:
           echo "Total size:"
           du -sh dist/
 
-      - name: Deploy to EC2 via SSH
-        uses: easingthemes/ssh-deploy@v5.0.3
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
-          ARGS: '-rlgoDzvc -i --delete'
-          SOURCE: 'dist/'
-          REMOTE_HOST: ${{ secrets.EC2_HOST }}
-          REMOTE_USER: ${{ secrets.EC2_USER }}
-          REMOTE_PORT: ${{ secrets.EC2_PORT }}
-          TARGET: '/var/www/main-quiz/'
-          SCRIPT_BEFORE: |
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          script: |
+            set -e
             echo "=== Starting Deployment ==="
-            echo "Backing up current build..."
-            if [ -d "/var/www/main-quiz" ] && [ "$(ls -A /var/www/main-quiz 2>/dev/null)" ]; then
-              rm -rf /var/www/main-quiz-backup
-              cp -r /var/www/main-quiz /var/www/main-quiz-backup
-              echo "Backup created"
-            else
-              echo "No existing build to backup"
-            fi
-          SCRIPT_AFTER: |
-            echo "=== Finalizing Deployment ==="
-            sudo systemctl restart nginx
-            echo "Nginx restarted"
             
-            echo "Running health check..."
+            DEPLOY_DIR="/var/www/main-quiz"
+            BACKUP_DIR="/var/www/main-quiz-backup"
+            TEMP_DIR="/tmp/main-quiz-deploy"
+            
+            # Create directories
+            mkdir -p $DEPLOY_DIR $BACKUP_DIR $TEMP_DIR
+            
+            # Backup current build
+            if [ "$(ls -A $DEPLOY_DIR 2>/dev/null)" ]; then
+              rm -rf $BACKUP_DIR
+              cp -r $DEPLOY_DIR $BACKUP_DIR
+              echo "Backup created"
+            fi
+            
+            # Clean temp dir
+            rm -rf $TEMP_DIR/*
+            
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 1
+
+      - name: Copy files to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          source: "dist/*"
+          target: "/tmp/main-quiz-deploy/"
+          strip_components: 0
+          overwrite: true
+
+      - name: Finalize deployment
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          script: |
+            set -e
+            DEPLOY_DIR="/var/www/main-quiz"
+            BACKUP_DIR="/var/www/main-quiz-backup"
+            TEMP_DIR="/tmp/main-quiz-deploy"
+            
+            echo "=== Moving files to deployment ==="
+            rm -rf $DEPLOY_DIR/*
+            cp -r $TEMP_DIR/* $DEPLOY_DIR/
+            
+            echo "=== Restarting Nginx ==="
+            sudo systemctl restart nginx
+            
+            echo "=== Health Check ==="
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost)
             if [ "$HTTP_CODE" = "200" ]; then
-              echo "✓ Health check PASSED (HTTP $HTTP_CODE)"
+              echo "SUCCESS: Health check passed (HTTP $HTTP_CODE)"
             else
-              echo "✗ Health check FAILED (HTTP $HTTP_CODE)"
+              echo "FAILED: Health check failed (HTTP $HTTP_CODE)"
               echo "Rolling back..."
-              rm -rf /var/www/main-quiz/*
-              cp -r /var/www/main-quiz-backup/* /var/www/main-quiz/
+              rm -rf $DEPLOY_DIR/*
+              cp -r $BACKUP_DIR/* $DEPLOY_DIR/
               sudo systemctl restart nginx
               echo "Rollback complete"
               exit 1
             fi
+            
+            # Cleanup
+            rm -rf $TEMP_DIR
+            
+            echo "=== Deployment Complete ==="
+            echo "URL: http://$(curl -s ifconfig.me)"
 
-      - name: Deployment Summary
+      - name: Deployment Success
         if: success()
-        run: |
-          echo "✅ Deployment successful!"
-          echo "App URL: http://${{ secrets.EC2_HOST }}"
+        run: echo "Deployed successfully to ${{ secrets.EC2_HOST }}"
 
       - name: Deployment Failed
         if: failure()
         run: |
-          echo "❌ Deployment failed!"
-          echo "Check GitHub Actions logs for details"
-          echo "Manual rollback: ssh into EC2 and run bash ~/deploy.sh with backup"
+          echo "Deployment failed!"
+          echo "Check logs above for details"
+          echo "SSH into EC2 to manually rollback if needed"

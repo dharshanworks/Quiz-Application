@@ -195,7 +195,7 @@ function App() {
     if (currentUser) {
       setView(currentUser.role === 'student' ? 'student-dashboard' : 'admin-dashboard');
     }
-  }, []);
+  }, [currentUser]);
 
   // Timer effect
   useEffect(() => {
@@ -203,7 +203,7 @@ function App() {
       const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
       return () => clearTimeout(timer);
     } else if (quizActive && timeLeft === 0) {
-      handleQuizSubmit();
+      handleSubmitQuiz();
     }
   }, [quizActive, timeLeft]);
 
@@ -297,7 +297,7 @@ function App() {
   };
 
   // Submit quiz
-  const handleQuizSubmit = () => {
+  const handleSubmitQuiz = () => {
     let score = 0;
     shuffledQuestions.forEach(q => {
       if (userAnswers[q.id] === q.answer) score++;
