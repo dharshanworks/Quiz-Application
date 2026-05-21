@@ -18,33 +18,72 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        working-directory: frontend
         run: npm ci
 
+      - name: Lint
+        run: npm run lint -- --no-fix || true
+
       - name: Build project
-        working-directory: frontend
         run: npm run build
 
-      - name: Deploy to EC2
+      - name: Verify build output
+        run: |
+          echo "Build output:"
+          ls -la dist/
+          echo "Total size:"
+          du -sh dist/
+
+      - name: Deploy to EC2 via SSH
         uses: easingthemes/ssh-deploy@v5.0.3
         env:
           SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
           ARGS: '-rlgoDzvc -i --delete'
-          SOURCE: 'frontend/dist/'
+          SOURCE: 'dist/'
           REMOTE_HOST: ${{ secrets.EC2_HOST }}
           REMOTE_USER: ${{ secrets.EC2_USER }}
           REMOTE_PORT: ${{ secrets.EC2_PORT }}
           TARGET: '/var/www/main-quiz/'
           SCRIPT_BEFORE: |
-            echo "Starting deployment to EC2..."
-            echo "Backup current build..."
-            if [ -d "/var/www/main-quiz" ]; then
+            echo "=== Starting Deployment ==="
+            echo "Backing up current build..."
+            if [ -d "/var/www/main-quiz" ] && [ "$(ls -A /var/www/main-quiz 2>/dev/null)" ]; then
+              rm -rf /var/www/main-quiz-backup
               cp -r /var/www/main-quiz /var/www/main-quiz-backup
+              echo "Backup created"
+            else
+              echo "No existing build to backup"
             fi
           SCRIPT_AFTER: |
-            echo "Deployment complete. Restarting Nginx..."
+            echo "=== Finalizing Deployment ==="
             sudo systemctl restart nginx
-            echo "Nginx restarted successfully."
+            echo "Nginx restarted"
+            
+            echo "Running health check..."
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost)
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✓ Health check PASSED (HTTP $HTTP_CODE)"
+            else
+              echo "✗ Health check FAILED (HTTP $HTTP_CODE)"
+              echo "Rolling back..."
+              rm -rf /var/www/main-quiz/*
+              cp -r /var/www/main-quiz-backup/* /var/www/main-quiz/
+              sudo systemctl restart nginx
+              echo "Rollback complete"
+              exit 1
+            fi
+
+      - name: Deployment Summary
+        if: success()
+        run: |
+          echo "✅ Deployment successful!"
+          echo "App URL: http://${{ secrets.EC2_HOST }}"
+
+      - name: Deployment Failed
+        if: failure()
+        run: |
+          echo "❌ Deployment failed!"
+          echo "Check GitHub Actions logs for details"
+          echo "Manual rollback: ssh into EC2 and run bash ~/deploy.sh with backup"
